@@ -10,6 +10,7 @@ env:
 
 jobs:
   wasm:
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -97,3 +98,18 @@ jobs:
         with:
           name: llvm-lines
           path: out/
+
+  bench-symmetry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: bench
+        run: |
+          nproc; lscpu | grep "Model name"
+          cargo run --release -p photocraft-engine --example zz_bench_symmetry_long --locked 2>/dev/null | tee bench.txt
+          cargo run --release -p photocraft-engine --example bench_symmetry --locked 2>/dev/null | tee -a bench.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-symmetry
+          path: bench.txt
