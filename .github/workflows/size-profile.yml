@@ -107,8 +107,7 @@ jobs:
       - name: bench
         run: |
           nproc; lscpu | grep "Model name"
-          cargo run --release -p photocraft-engine --example zz_bench_symmetry_long --locked 2>/dev/null | tee bench.txt
-          cargo run --release -p photocraft-engine --example bench_symmetry --locked 2>/dev/null | tee -a bench.txt
+          cargo run --release -p photocraft-engine --example zz_scaling --locked 2>/dev/null | tee bench.txt
       - uses: actions/upload-artifact@v4
         with:
           name: bench-symmetry
