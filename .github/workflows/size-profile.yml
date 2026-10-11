@@ -1,0 +1,95 @@
+# Fork-only analysis workflow (never upstreamed): where do the wasm and native bytes go?
+name: size-profile
+on:
+  push:
+    branches: ["analysis/**"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: twiggy,wasm-opt
+      - name: Build raw wasm (shipping profile, names kept)
+        env:
+          CARGO_PROFILE_WASM_RELEASE_STRIP: none
+        run: |
+          cargo build -p photocraft-web --target wasm32-unknown-unknown --profile wasm-release --features heif --locked
+          ls -l target/wasm32-unknown-unknown/wasm-release/*.wasm
+      - name: twiggy reports
+        run: |
+          W=target/wasm32-unknown-unknown/wasm-release/photocraft-web.wasm
+          mkdir -p out
+          wc -c < "$W" > out/raw-bytes.txt
+          wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue -g "$W" -o out/oz.wasm || true
+          [ -f out/oz.wasm ] && wc -c < out/oz.wasm > out/oz-bytes.txt
+          twiggy top -n 400 "$W" > out/top.txt
+          twiggy top -a --format csv "$W" > out/top-all.csv
+          twiggy dominators -d 3 -r 400 "$W" > out/dominators.txt
+          twiggy monos -m 80 -n 12 "$W" > out/monos.txt
+          twiggy garbage -n 100 "$W" > out/garbage.txt
+          if [ -f out/oz.wasm ]; then twiggy top -a --format csv out/oz.wasm > out/oz-top-all.csv; rm out/oz.wasm; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm-size
+          path: out/
+
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libgtk-3-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-bloat
+      - name: cargo bloat
+        run: |
+          mkdir -p out
+          cargo bloat --release -p photocraft --bin photocraft --features heif --locked --crates -n 120 > out/native-crates.txt 2>out/build.log
+          cargo bloat --release -p photocraft --bin photocraft --features heif --locked -n 400 > out/native-fns.txt 2>>out/build.log
+          ls -l target/release/photocraft > out/native-bytes.txt
+          strip -o /tmp/p target/release/photocraft && ls -l /tmp/p >> out/native-bytes.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-size
+          path: out/
+
+  llvm-lines:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libgtk-3-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-lines
+      - name: llvm-lines per crate
+        run: |
+          mkdir -p out
+          for p in photocraft-ui-egui photocraft-engine photocraft-io photocraft-algo photocraft-psd; do
+            cargo llvm-lines -p "$p" --lib --release --locked 2>/dev/null | head -80 > "out/llvm-lines-$p.txt" || true
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llvm-lines
+          path: out/
