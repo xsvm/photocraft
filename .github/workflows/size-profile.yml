@@ -27,23 +27,26 @@ jobs:
           ls -l target/wasm32-unknown-unknown/wasm-release/*.wasm
       - name: twiggy reports
         run: |
+          set +e
           W=target/wasm32-unknown-unknown/wasm-release/photocraft-web.wasm
           mkdir -p out
           wc -c < "$W" > out/raw-bytes.txt
           wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue -g "$W" -o out/oz.wasm || true
           [ -f out/oz.wasm ] && wc -c < out/oz.wasm > out/oz-bytes.txt
           twiggy top -n 400 "$W" > out/top.txt
-          twiggy top -a --format csv "$W" > out/top-all.csv
+          twiggy top -n 2000000 --format csv "$W" > out/top-all.csv
           twiggy dominators -d 3 -r 400 "$W" > out/dominators.txt
           twiggy monos -m 80 -n 12 "$W" > out/monos.txt
           twiggy garbage -n 100 "$W" > out/garbage.txt
-          if [ -f out/oz.wasm ]; then twiggy top -a --format csv out/oz.wasm > out/oz-top-all.csv; rm out/oz.wasm; fi
+          if [ -f out/oz.wasm ]; then twiggy top -n 2000000 --format csv out/oz.wasm > out/oz-top-all.csv; rm out/oz.wasm; fi
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: wasm-size
           path: out/
 
   native:
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,6 +73,7 @@ jobs:
           path: out/
 
   llvm-lines:
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
