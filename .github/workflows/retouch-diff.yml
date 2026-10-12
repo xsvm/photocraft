@@ -1,0 +1,18 @@
+name: retouch-diff
+on:
+  push:
+    branches: [analysis/retouch-diff]
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: measure
+        run: |
+          nproc; lscpu | grep "Model name"
+          cargo run --release -p photocraft-engine --example zz_retouch_diff --locked 2>/dev/null | tee out.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: retouch-diff
+          path: out.txt
