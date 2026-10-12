@@ -1,0 +1,21 @@
+name: retouch-release
+on:
+  push:
+    branches: [analysis/retouch-release]
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: measure
+        run: |
+          set -o pipefail
+          nproc; lscpu | grep "Model name"
+          cargo build --release -p photocraft-engine --example zz_retouch_release --locked
+          ./target/release/examples/zz_retouch_release 2>&1 | tee out.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: retouch-release
+          path: out.txt
