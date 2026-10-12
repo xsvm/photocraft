@@ -1,0 +1,30 @@
+name: lasso-bench
+on:
+  push:
+    branches: [analysis/lasso-bench]
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ref: [f14817a5d2db1c63524b91b9e6f5212bbc535834, perf/lasso-active-edges]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: bench
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+          path: src
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: bench
+        working-directory: src
+        run: |
+          nproc; lscpu | grep "Model name"; git log --oneline -1
+          cp ../bench/crates/engine/examples/zz_lasso.rs crates/engine/examples/
+          cargo run --release -p photocraft-engine --example zz_lasso --locked 2>/dev/null | tee ../bench.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lasso-bench-${{ strategy.job-index }}
+          path: bench.txt
