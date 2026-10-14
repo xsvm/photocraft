@@ -35,7 +35,13 @@ mod fork_fingerprint {
             for style in [BevelStyle::InnerBevel, BevelStyle::OuterBevel, BevelStyle::Emboss, BevelStyle::PillowEmboss, BevelStyle::StrokeEmboss] {
                 for technique in [BevelTechnique::Smooth, BevelTechnique::ChiselHard, BevelTechnique::ChiselSoft] {
                     for (size, soften, textured) in [(5.0f32, 0.0f32, false), (12.0, 2.0, false), (8.0, 0.0, true), (40.0, 0.0, false)] {
-                        let mut b = Bevel { style, technique, size, soften, depth: 1.0, angle: 120.0, altitude: 30.0, use_global_light: false, ..Default::default() };
+                        let mut b = Bevel {
+                            enabled: true, style, technique, depth: 1.0, up: true, size, soften, angle: 120.0, altitude: 30.0,
+                            use_global_light: false, gloss_contour: Contour::Linear,
+                            highlight: photocraft_doc::FxCommon::new(BlendMode::Screen, 0.75), highlight_color: photocraft_color::Color::WHITE,
+                            shadow: photocraft_doc::FxCommon::new(BlendMode::Multiply, 0.75), shadow_color: photocraft_color::Color::BLACK,
+                            contour: None, texture: None,
+                        };
                         if textured {
                             b.texture = Some(photocraft_doc::BevelTexture { name: "stripes".into(), id: String::new(), scale: 1.0, depth: 1.0, invert: false, link: true, phase: (0.0, 0.0) });
                         }
