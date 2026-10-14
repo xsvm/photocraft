@@ -21,7 +21,7 @@ jobs:
         run: |
           mkdir -p bin out
           for v in A B; do
-            if [ $v = A ]; then c=027691dcaad38c3ca503f3f29a29db747a200b1a; else c=4813c8c7; fi
+            if [ $v = A ]; then c=027691dcaad38c3ca503f3f29a29db747a200b1a; else c=fa81873625baadb7b3f60c2079166ceee45e933f; fi
             git checkout -q $c
             sed -i 's/^memory-stats = "1.2"$/memory-stats = { version = "1.2", features = ["always_use_statm"] }/' crates/testkit/Cargo.toml
             cargo build --release -p photocraft-ui-egui --locked --example bevel_bench
