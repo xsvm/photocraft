@@ -30,14 +30,17 @@ jobs:
             cat /tmp/fp_test.rs >> crates/compose/src/effects.rs
             cargo test --release -q -p photocraft-compose --lib fork_bevel_fingerprint -- --nocapture 2>&1 | grep FORK_FP | sed "s/^/$v /" | tee -a out/fp.txt
             git checkout -q -- crates/compose/src/effects.rs
+            sed -i 's/^memory-stats = "1.2"$/memory-stats = { version = "1.2", features = ["always_use_statm"] }/' crates/testkit/Cargo.toml
+            grep -n memory-stats crates/testkit/Cargo.toml
             cargo build --release -p photocraft-ui-egui --locked --example bevel_bench
+            git checkout -q -- crates/testkit/Cargo.toml
             cp target/release/examples/bevel_bench bin/bevel_$v
           done
           echo "== fingerprints"; cat out/fp.txt
           [ "$(cut -d' ' -f3 out/fp.txt | sort -u | wc -l)" = 1 ] && echo "FINGERPRINTS EQUAL" || { echo "FINGERPRINTS DIFFER"; exit 1; }
       - name: A/B runs (interleaved)
         run: |
-          for i in 1 2 3 4 5; do for v in A B; do
+          for i in 1 2 3 4 5 6; do for v in A B; do
             ./bin/bevel_$v --size 4000x3000 --reps 3 --json out/bevel_${v}_$i.json > out/bevel_${v}_$i.log 2>&1 || true
           done; done
       - uses: actions/upload-artifact@v4
