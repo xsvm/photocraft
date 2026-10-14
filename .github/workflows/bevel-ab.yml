@@ -1,7 +1,7 @@
 name: bevel-ab
 on:
   push:
-    branches: [analysis/bevel-ab]
+    branches: [analysis/bevel-ab-none]
 jobs:
   ab:
     runs-on: ubuntu-latest
