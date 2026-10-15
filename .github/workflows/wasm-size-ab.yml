@@ -1,0 +1,30 @@
+name: wasm-size-ab
+on:
+  push:
+    branches: [analysis/bevel-ab]
+jobs:
+  size:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      TRUNK_VERSION: 0.21.14
+      PHOTOCRAFT_WASM_MAX_BYTES: "999999999"
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: wasm32-unknown-unknown }
+      - uses: Swatinem/rust-cache@v2
+      - name: install trunk
+        run: curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" | tar -xz -C "$HOME/.cargo/bin" trunk
+      - name: build main, compose commit, gpu head
+        run: |
+          git remote add up https://github.com/storytold/photocraft.git
+          git fetch -q up main
+          for c in ad96df56 ea4f5df0 39df1b26 1b16ae75; do
+            git checkout -q $c
+            rm -rf dist/web
+            packaging/web/package.sh > /dev/null 2>&1 || true
+            echo "$c $(wc -c < dist/web/*.wasm)" | tee -a sizes.txt
+          done
+          cat sizes.txt >> "$GITHUB_STEP_SUMMARY"
