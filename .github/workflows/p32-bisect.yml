@@ -1,6 +1,6 @@
 name: p32-bisect
 # One-off: which commit between 2d2e4993 (10-14, release 0.33 ms) and main (7.6 ms) slowed the
-# P32 brush release on Linux? Engine-only bench (.github/ab/p32_release.rs), git bisect run.
+# P32 brush release on Linux? Endpoints measured: 2d2e4993 commit 0.17 ms, main 3.93 ms (min). Engine-only bench (.github/ab/p32_release.rs), git bisect run.
 on:
   push:
     branches: [analysis/p32-bisect]
@@ -16,7 +16,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Bisect
         run: |
-          set -u
+          set +e -u  # the step script exits 1 for a slow commit; bisect reads that
           cp .github/ab/p32_release.rs /tmp/p32_release.rs
           cat > /tmp/step.sh <<'SH'
           #!/bin/bash
@@ -27,14 +27,11 @@ jobs:
           rm -f crates/engine/examples/p32_release.rs
           out=$(target/release/examples/p32_release); code=$?
           echo "$(git log -1 --format='%h %s' | cut -c1-90) :: $out"
-          exit $code
+          [ "$code" -le 1 ] && exit $code; echo "bench exit $code"; exit 125
           SH
           chmod +x /tmp/step.sh
           main=$(git rev-parse HEAD~1)
           git checkout -q "$main"
-          echo "== endpoints"
-          git checkout -q 2d2e4993 && /tmp/step.sh; echo "old exit $?"
-          git checkout -q "$main" && /tmp/step.sh; echo "main exit $?"
           git bisect start "$main" 2d2e4993 --first-parent
           git bisect run /tmp/step.sh 2>&1 | grep -E '::|is the first bad commit|^commit |^    ' | tee bisect.txt
           git bisect log | tail -5

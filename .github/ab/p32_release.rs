@@ -41,5 +41,5 @@ fn main() {
     commit.sort_by(f64::total_cmp);
     let total = offer[0] + commit[0];
     println!("offer min {:.2} p50 {:.2} | commit min {:.2} p50 {:.2} | total min {total:.2} ms", offer[0], offer[3], commit[0], commit[3]);
-    std::process::exit(i32::from(total > 3.0));
+    std::process::exit(i32::from(total > 1.5));
 }
