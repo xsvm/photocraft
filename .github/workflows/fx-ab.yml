@@ -1,0 +1,51 @@
+name: fx-ab
+# One-off: do the fx_bench rows (full refresh with effects, adjustment tweak, dab on the effect
+# layer: 1.4-2.1x on the macOS perf runner between 2d2e4993 and 03d0c7e3), the 40-dab brush
+# stroke and the JPEG export slow down on Linux too? O = 2d2e4993, M = main 9b9643764f3fb77d9f0e48d7510983ae50621e11.
+on:
+  push:
+    branches: [analysis/fx-ab]
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: System dependencies and lavapipe
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends             libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev             libgl1-mesa-dev libgtk-3-dev mesa-vulkan-drivers
+      - name: Build O and M, one target dir each
+        run: |
+          set -eu
+          for side in O:2d2e4993 M:9b9643764f3fb77d9f0e48d7510983ae50621e11; do
+            name=${side%%:*}; rev=${side#*:}
+            git worktree add -q "wt-$name" "$rev"
+            (cd "wt-$name" && CARGO_TARGET_DIR="$PWD/../target-$name" cargo build -q --release -p photocraft-ui-egui --example fx_bench --example interactive_bench)
+            cp "target-$name/release/examples/fx_bench" "fx-$name"
+            cp "target-$name/release/examples/interactive_bench" "ib-$name"
+          done
+          if cmp -s fx-O fx-M; then echo "O and M fx_bench binaries are identical"; exit 1; fi
+      - name: Run interleaved
+        run: |
+          set -u
+          nproc
+          for round in 1 2 3; do
+            for side in O M; do
+              echo "== fx $side round $round"
+              ./fx-$side --size 4000x3000 --reps 5 2>&1 | grep -vE '^\s*$' | tail -14
+            done
+          done
+          for row in "brush stroke 40 dabs" "export JPEG"; do
+            for round in 1 2 3; do
+              for side in O M; do
+                echo "== ib $side round $round: $row"
+                ./ib-$side --size 4000x3000 --reps 7 --only "$row" 2>&1 | grep -E "$row"
+              done
+            done
+          done
+        shell: bash
