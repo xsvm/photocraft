@@ -1,0 +1,37 @@
+name: p32-fix-ab
+# One-off A/B for the P32 brush release: main (46e538b3a2bacb533e89c7a30a99bbf2d91c3381) vs perf/tile-content-bounds
+# (13e7f0299b9de7f17ddcfc6a75051aa3c8a5fa43). Engine-only bench (.github/ab/p32_ab.rs); the damage fingerprints must match.
+on:
+  push:
+    branches: [analysis/p32-fix-ab]
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build M (main) and P (fix), one target dir each
+        run: |
+          set -eu
+          for side in M:46e538b3a2bacb533e89c7a30a99bbf2d91c3381 P:13e7f0299b9de7f17ddcfc6a75051aa3c8a5fa43; do
+            name=${side%%:*}; rev=${side#*:}
+            git worktree add -q "wt-$name" "$rev"
+            cp .github/ab/p32_ab.rs "wt-$name/crates/engine/examples/p32_ab.rs"
+            (cd "wt-$name" && CARGO_TARGET_DIR="$PWD/../target-$name" cargo build -q --release -p photocraft-engine --example p32_ab)
+            cp "target-$name/release/examples/p32_ab" "p32-$name"
+          done
+          if cmp -s p32-M p32-P; then echo "M and P binaries are identical"; exit 1; fi
+      - name: Run interleaved
+        run: |
+          set -eu
+          nproc
+          for round in 1 2 3 4 5; do
+            for side in M P; do echo "$side round $round: $(./p32-$side)"; done
+          done | tee ab.txt
+          { echo '```'; cat ab.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Raster unit tests (P)
+        run: cd wt-P && CARGO_TARGET_DIR="$PWD/../target-P" cargo test -q --release -p photocraft-raster --lib 2>&1 | tail -5
