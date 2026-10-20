@@ -1,0 +1,42 @@
+name: p9-profile
+# One-off: where do P9 / P11 (duplicate / paste a 12 MP layer again + refresh, 116 / 147 ms on
+# the macOS perf runner, budget 20 ms) spend their time on Linux? Rows on lavapipe and on the
+# CPU compositor, then a perf profile of each.
+on:
+  push:
+    branches: [analysis/p9-profile]
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: System dependencies, lavapipe and perf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libgtk-3-dev mesa-vulkan-drivers linux-tools-common "linux-tools-$(uname -r)"
+          sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0
+      - name: Build perf_scenarios (release, line tables)
+        run: CARGO_PROFILE_RELEASE_DEBUG=line-tables-only cargo build -q --release -p photocraft-ui-egui --example perf_scenarios
+      - name: Rows and profiles
+        run: |
+          set -u
+          bin=target/release/examples/perf_scenarios
+          nproc
+          for mode in gpu cpu; do
+            extra=""; [ "$mode" = cpu ] && extra="--cpu"
+            echo "== $mode rows"
+            $bin --group layered --only "12 MP layer" --reps 7 $extra 2>&1 | grep -E "12 MP|adapter|canvas"
+            for row in "duplicate 12 MP layer (repeat)" "paste 12 MP layer (repeat)"; do
+              echo "== $mode profile: $row"
+              perf record -q -F 2000 -g -o "perf-$mode.data" -- $bin --group layered --only "$row" --reps 15 $extra >/dev/null 2>&1
+              perf report -i "perf-$mode.data" --no-children --sort symbol --percent-limit 1.5 --stdio 2>/dev/null | grep -E '^ +[0-9]' | head -25
+              perf report -i "perf-$mode.data" --children --sort symbol --percent-limit 4 --stdio -g none 2>/dev/null | grep -E '^ +[0-9]' | grep -iE 'photocraft|compose|raster|engine|gpu' | head -25
+            done
+          done | tee out.txt
+          { echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
