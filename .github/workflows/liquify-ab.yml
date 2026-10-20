@@ -17,7 +17,7 @@ jobs:
         run: |
           set -eu
           export CARGO_TARGET_DIR="$PWD/target-ab"
-          for side in A:03d0c7e3 B:dfba0544; do
+          for side in A:03d0c7e3 B:6d96c38c; do
             name=${side%%:*}; rev=${side#*:}
             git worktree add -q "wt-$name" "$rev"
             cp .github/ab/liq_bench.rs "wt-$name/crates/algo/examples/liq_bench.rs"
