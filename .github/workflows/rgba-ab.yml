@@ -1,5 +1,5 @@
 name: rgba-ab
-# One-off A/B: main (9b9643764f3fb77d9f0e48d7510983ae50621e11) vs perf/raster-read-rows (db9d968e51ead0809e5641d6801a89f7d55232fb).
+# One-off A/B: main (872748fb5b2a53e09dd4e385e31968d985c0515b) vs perf/raster-read-rows (331c7f38a553a173eb1f5e23bb6b77ad3fd9b3f2).
 # read_rgba_into per format (.github/ab/rgba_bench.rs, output fingerprints must match), the
 # CPU-compositor "bit depths" rows of perf_scenarios, and the touched crates' tests (debug).
 on:
@@ -22,7 +22,7 @@ jobs:
       - name: Build M and P, one target dir each
         run: |
           set -eu
-          for side in M:9b9643764f3fb77d9f0e48d7510983ae50621e11 P:db9d968e51ead0809e5641d6801a89f7d55232fb; do
+          for side in M:872748fb5b2a53e09dd4e385e31968d985c0515b P:331c7f38a553a173eb1f5e23bb6b77ad3fd9b3f2; do
             name=${side%%:*}; rev=${side#*:}
             git worktree add -q "wt-$name" "$rev"
             mkdir -p "wt-$name/crates/raster/examples"
