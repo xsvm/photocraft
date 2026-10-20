@@ -1,0 +1,46 @@
+name: rgba-ab
+# One-off A/B: main (9b9643764f3fb77d9f0e48d7510983ae50621e11) vs perf/raster-read-rows (db9d968e51ead0809e5641d6801a89f7d55232fb).
+# read_rgba_into per format (.github/ab/rgba_bench.rs, output fingerprints must match), the
+# CPU-compositor "bit depths" rows of perf_scenarios, and the touched crates' tests (debug).
+on:
+  push:
+    branches: [analysis/rgba-ab]
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends             libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev libgtk-3-dev
+      - name: Build M and P, one target dir each
+        run: |
+          set -eu
+          for side in M:9b9643764f3fb77d9f0e48d7510983ae50621e11 P:db9d968e51ead0809e5641d6801a89f7d55232fb; do
+            name=${side%%:*}; rev=${side#*:}
+            git worktree add -q "wt-$name" "$rev"
+            mkdir -p "wt-$name/crates/raster/examples"
+            cp .github/ab/rgba_bench.rs "wt-$name/crates/raster/examples/rgba_bench.rs"
+            (cd "wt-$name" && CARGO_TARGET_DIR="$PWD/../target-$name" cargo build -q --release -p photocraft-raster --example rgba_bench -p photocraft-ui-egui --example perf_scenarios)
+            cp "target-$name/release/examples/rgba_bench" "rgba-$name"
+            cp "target-$name/release/examples/perf_scenarios" "perf-$name"
+          done
+          if cmp -s rgba-M rgba-P; then echo "M and P binaries are identical"; exit 1; fi
+      - name: Run interleaved
+        run: |
+          set -u
+          nproc
+          for round in 1 2 3; do for side in M P; do echo "== rgba $side round $round"; ./rgba-$side; done; done
+          for round in 1 2 3; do for side in M P; do
+            echo "== bit depths $side round $round"
+            ./perf-$side --cpu --group "bit depths" --reps 5 2>&1 | grep -E ' p50 '
+          done; done
+        shell: bash
+      - name: Tests of the touched crates (P, debug)
+        run: cd wt-P && CARGO_TARGET_DIR="$PWD/../target-P-debug" cargo test -q -p photocraft-raster -p photocraft-color --lib 2>&1 | grep -E 'test result|FAILED|panicked'
