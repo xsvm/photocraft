@@ -1,0 +1,39 @@
+name: liquify-ab
+# One-off A/B for the P30 full-resolution Liquify update: main vs perf/liquify-source-par.
+on:
+  push:
+    branches: [analysis/liquify-ab]
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build A (main) and B (branch)
+        run: |
+          set -eu
+          export CARGO_TARGET_DIR="$PWD/target-ab"
+          for side in A:03d0c7e3 B:dfba0544; do
+            name=${side%%:*}; rev=${side#*:}
+            git worktree add -q "wt-$name" "$rev"
+            cp .github/ab/liq_bench.rs "wt-$name/crates/algo/examples/liq_bench.rs"
+            (cd "wt-$name" && cargo build -q --release -p photocraft-algo --example liq_bench)
+            cp "$CARGO_TARGET_DIR/release/examples/liq_bench" "bench-$name"
+          done
+          cmp -s bench-A bench-B && { echo "A and B binaries are identical"; exit 1; } || true
+      - name: Run interleaved
+        run: |
+          set -eu
+          nproc
+          for mode in flat tex; do
+            for round in 1 2 3 4 5; do
+              for side in A B; do echo "$side round $round: $(./bench-$side $mode)"; done
+            done
+          done | tee ab.txt
+          {
+            echo '```'; cat ab.txt; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
