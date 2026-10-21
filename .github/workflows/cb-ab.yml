@@ -1,7 +1,7 @@
 name: cb-ab
-# One-off A/B: main (b097800e) vs perf/color-balance-hoist (f21ff3a4). Whole-document render with
-# a Color Balance layer (.github/ab/cb_bench.rs; fingerprints must match), and compose's
-# color_balance tests (debug).
+# One-off A/B: main (b097800e) vs perf/color-balance-hoist (aab9cdc0). Whole-document render with
+# a Color Balance layer (.github/ab/cb_bench.rs; fingerprints must match), compose's
+# color_balance tests and gpu's CPU/GPU adjustment parity on lavapipe (debug).
 on:
   push:
     branches: [analysis/cb-ab]
@@ -15,11 +15,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
+      - name: lavapipe
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
       - name: Build M and P, one target dir each
         run: |
           set -eu
           git fetch -q https://github.com/xsvm/photocraft perf/color-balance-hoist
-          for side in M:b097800e P:f21ff3a4152f252c7415634b9ece50c3719a9575; do
+          for side in M:b097800e P:aab9cdc04590f8512478722a529ea01fc7070122; do
             name=${side%%:*}; rev=${side#*:}
             git worktree add -q "wt-$name" "$rev"
             cp .github/ab/cb_bench.rs "wt-$name/crates/engine/examples/cb_bench.rs"
@@ -35,3 +37,7 @@ jobs:
         shell: bash
       - name: color_balance tests (P, debug)
         run: cd wt-P && CARGO_TARGET_DIR="$PWD/../target-P-debug" cargo test -q -p photocraft-compose --lib color_balance 2>&1 | grep -E 'test result|FAILED|panicked|running'
+      - name: gpu adjustment parity (P, debug, lavapipe required)
+        env:
+          WGPU_BACKEND: vulkan
+        run: cd wt-P && CARGO_TARGET_DIR="$PWD/../target-P-debug" cargo test -q -p photocraft-gpu --test parity adjustment 2>&1 | grep -E 'test result|FAILED|panicked|running|skipping'
