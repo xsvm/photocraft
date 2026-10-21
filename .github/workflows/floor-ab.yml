@@ -1,0 +1,40 @@
+name: floor-ab
+# One-off A/B: main (b097800e78405aeb2068113988898f991e707eb4) vs perf/quantize-no-libm-floor (414d1a71089d485ab34357d9e368a5f7be673b18).
+# Whole-document render with one adjustment layer of each kind (.github/ab/adj_bench.rs;
+# fingerprints must match), and compose's lib tests (debug).
+on:
+  push:
+    branches: [analysis/floor-ab]
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build M and P, one target dir each
+        run: |
+          set -eu
+          git fetch -q https://github.com/xsvm/photocraft perf/quantize-no-libm-floor
+          for side in M:b097800e78405aeb2068113988898f991e707eb4 P:414d1a71089d485ab34357d9e368a5f7be673b18; do
+            name=${side%%:*}; rev=${side#*:}
+            git worktree add -q "wt-$name" "$rev"
+            cp .github/ab/adj_bench.rs "wt-$name/crates/engine/examples/adj_bench.rs"
+            (cd "wt-$name" && CARGO_TARGET_DIR="$PWD/../target-$name" cargo build -q --release -p photocraft-engine --example adj_bench)
+            cp "target-$name/release/examples/adj_bench" "adj-$name"
+          done
+          if cmp -s adj-M adj-P; then echo "M and P binaries are identical"; exit 1; fi
+      - name: Run interleaved
+        run: |
+          set -u
+          nproc
+          for round in 1 2 3; do for side in M P; do echo "== $side round $round"; ./adj-$side; done; done
+        shell: bash
+      - name: compose lib tests (P, debug)
+        shell: bash
+        run: |
+          set -o pipefail
+          cd wt-P && CARGO_TARGET_DIR="$PWD/../target-P-debug" cargo test -q -p photocraft-compose --lib 2>&1 | grep -E 'test result|FAILED|panicked|failures'
