@@ -1,0 +1,37 @@
+name: adj-profile
+# One-off: cost of each adjustment layer kind on the CPU compositor (4000x3000, 8-bit photo),
+# and a perf profile per kind.
+on:
+  push:
+    branches: [analysis/adj-profile]
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: perf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends linux-tools-common "linux-tools-$(uname -r)"
+          sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0
+      - name: Build (release, line tables)
+        run: |
+          cp .github/ab/adj_bench.rs crates/engine/examples/adj_bench.rs
+          CARGO_PROFILE_RELEASE_DEBUG=line-tables-only cargo build -q --release -p photocraft-engine --example adj_bench
+      - name: Times and profiles
+        run: |
+          set -u
+          b=target/release/examples/adj_bench
+          nproc
+          echo "== times (round 1)"; $b
+          echo "== times (round 2)"; $b
+          for k in exposure hueSaturation vibrance colorBalance selectiveColor photoFilter blackWhite brightnessContrast levels curves gradientMap; do
+            echo "== profile: $k"
+            perf record -q -F 1999 -g -o p.data -- $b $k >/dev/null 2>&1
+            perf report -i p.data --no-children --sort symbol --percent-limit 2 --stdio -g none 2>/dev/null | grep -E '^ +[0-9]' | head -10
+          done
+        shell: bash
