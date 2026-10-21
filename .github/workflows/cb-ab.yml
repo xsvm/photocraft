@@ -1,0 +1,37 @@
+name: cb-ab
+# One-off A/B: main (b097800e) vs perf/color-balance-hoist (f21ff3a4). Whole-document render with
+# a Color Balance layer (.github/ab/cb_bench.rs; fingerprints must match), and compose's
+# color_balance tests (debug).
+on:
+  push:
+    branches: [analysis/cb-ab]
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build M and P, one target dir each
+        run: |
+          set -eu
+          git fetch -q https://github.com/xsvm/photocraft perf/color-balance-hoist
+          for side in M:b097800e P:f21ff3a4152f252c7415634b9ece50c3719a9575; do
+            name=${side%%:*}; rev=${side#*:}
+            git worktree add -q "wt-$name" "$rev"
+            cp .github/ab/cb_bench.rs "wt-$name/crates/engine/examples/cb_bench.rs"
+            (cd "wt-$name" && CARGO_TARGET_DIR="$PWD/../target-$name" cargo build -q --release -p photocraft-engine --example cb_bench)
+            cp "target-$name/release/examples/cb_bench" "cb-$name"
+          done
+          if cmp -s cb-M cb-P; then echo "M and P binaries are identical"; exit 1; fi
+      - name: Run interleaved
+        run: |
+          set -u
+          nproc
+          for round in 1 2 3 4 5; do for side in M P; do echo "== $side round $round"; ./cb-$side; done; done
+        shell: bash
+      - name: color_balance tests (P, debug)
+        run: cd wt-P && CARGO_TARGET_DIR="$PWD/../target-P-debug" cargo test -q -p photocraft-compose --lib color_balance 2>&1 | grep -E 'test result|FAILED|panicked|running'
