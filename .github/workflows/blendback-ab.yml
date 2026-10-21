@@ -1,0 +1,58 @@
+name: blendback-ab
+# One-off A/B/C: main (b097800e78405aeb2068113988898f991e707eb4), B = blend_back only (420353c5ae0ebf34359a3f68d5e97bbcaa8a9709), P = blend_back + branchless_floor (f2dce8071843e0cfcc285e4a942c3da2bcb9ac10).
+# Whole-document render with one adjustment layer of each kind (.github/ab/adj_bench.rs;
+# fingerprints must match), an exhaustive branchless_floor check (release), compose lib tests (debug).
+on:
+  push:
+    branches: [analysis/blendback-ab]
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build M, B and P, one target dir each
+        run: |
+          set -eu
+          git fetch -q https://github.com/xsvm/photocraft perf/adjustment-blend-back
+          for side in M:b097800e78405aeb2068113988898f991e707eb4 B:420353c5ae0ebf34359a3f68d5e97bbcaa8a9709 P:f2dce8071843e0cfcc285e4a942c3da2bcb9ac10; do
+            name=${side%%:*}; rev=${side#*:}
+            git worktree add -q "wt-$name" "$rev"
+            cp .github/ab/adj_bench.rs "wt-$name/crates/engine/examples/adj_bench.rs"
+            (cd "wt-$name" && CARGO_TARGET_DIR="$PWD/../target-$name" cargo build -q --release -p photocraft-engine --example adj_bench)
+            cp "target-$name/release/examples/adj_bench" "adj-$name"
+          done
+          if cmp -s adj-M adj-B || cmp -s adj-B adj-P; then echo "binaries are identical"; exit 1; fi
+      - name: Run interleaved
+        run: |
+          set -u
+          nproc
+          for round in 1 2 3 4 5; do for side in M B P; do echo "== $side round $round"; ./adj-$side; done; done
+        shell: bash
+      - name: Exhaustive branchless_floor (P, release, not committed)
+        shell: bash
+        run: |
+          set -eo pipefail
+          cd wt-P
+          cat >> crates/compose/src/tests.rs <<'RS'
+
+          #[test]
+          #[ignore]
+          fn branchless_floor_exhaustive() {
+              for bits in 0..=u32::MAX {
+                  let x = f32::from_bits(bits);
+                  assert_eq!(branchless_floor(x).to_bits(), x.floor().to_bits(), "{bits:#010x}");
+              }
+          }
+          RS
+          CARGO_TARGET_DIR="$PWD/../target-P-x" cargo test -q --release -p photocraft-compose --lib branchless_floor_exhaustive -- --ignored 2>&1 | grep -E 'test result|FAILED|panicked'
+          git checkout crates/compose/src/tests.rs
+      - name: compose lib tests (P, debug)
+        shell: bash
+        run: |
+          set -o pipefail
+          cd wt-P && CARGO_TARGET_DIR="$PWD/../target-P-debug" cargo test -q -p photocraft-compose --lib 2>&1 | grep -E 'test result|FAILED|panicked|failures'
