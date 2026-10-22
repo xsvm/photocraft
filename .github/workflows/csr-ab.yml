@@ -3,6 +3,7 @@ name: csr-ab
 # old vs new push/relabel bit for bit; then main vs PR timings (both with the analysis stage
 # timings and a mask hash), differing only in push_relabel.rs.
 on:
+  workflow_dispatch:
   push:
     branches: [analysis/csr-ab]
 jobs:
