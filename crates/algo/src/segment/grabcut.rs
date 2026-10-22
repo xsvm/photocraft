@@ -40,8 +40,17 @@ pub fn grabcut(img: &RgbImage, trimap: &mut [u8], iters: usize) -> Option<(Gmm, 
 /// [`grabcut`] that stops with `Err(Cancelled)` once `ctl` is cancelled, asked each iteration
 /// and inside its min cut. `trimap` is then partly updated.
 pub fn grabcut_with(img: &RgbImage, trimap: &mut [u8], iters: usize, ctl: &Interrupt) -> Result<Option<(Gmm, Gmm)>, Cancelled> {
+    let mut __t = std::time::Instant::now();
+    #[allow(unused_macros)]
+    macro_rules! lap {
+        ($n:expr) => {
+            eprintln!("      {:<22} {:>8.1} ms", $n, __t.elapsed().as_secs_f64() * 1e3);
+            __t = std::time::Instant::now();
+        };
+    }
     let cancel = || ctl.cancelled();
     let beta = contrast_beta(img);
+    lap!("gc beta");
     let fixed: Vec<u8> = trimap
         .iter()
         .map(|t| match *t {
@@ -51,13 +60,16 @@ pub fn grabcut_with(img: &RgbImage, trimap: &mut [u8], iters: usize, ctl: &Inter
         })
         .collect();
     let mut models: Option<(Gmm, Gmm)> = None;
-    for _ in 0..iters.max(1) {
+    eprintln!("      gc free {} of {}", fixed.iter().filter(|f| **f == FREE).count(), fixed.len());
+    lap!("gc fixed");
+    for _it in 0..iters.max(1) {
         ctl.check()?;
         let (mut fs, mut bs) = (Vec::new(), Vec::new());
         for (p, t) in img.px.iter().zip(trimap.iter()) {
             if is_fg(*t) { fs.push(*p) } else { bs.push(*p) }
         }
         let (fs, bs) = (subsample(&fs, MAX_SAMPLES), subsample(&bs, MAX_SAMPLES));
+        lap!(format!("gc{_it} split"));
         let (fg, bg) = match &models {
             None => match (Gmm::fit(&fs, K, DEFAULT_REG), Gmm::fit(&bs, K, DEFAULT_REG)) {
                 (Some(f), Some(b)) => (f, b),
@@ -65,7 +77,9 @@ pub fn grabcut_with(img: &RgbImage, trimap: &mut [u8], iters: usize, ctl: &Inter
             },
             Some((f, b)) => (f.refit(&fs).unwrap_or_else(|| f.clone()), b.refit(&bs).unwrap_or_else(|| b.clone())),
         };
+        lap!(format!("gc{_it} fit"));
         let (cf, cb) = data_costs(img, &fg, &bg);
+        lap!(format!("gc{_it} data_costs"));
         // `grid_cut`'s weight, with the cut stopping on cancel.
         let cut = grid_cut_cancellable(img, &cf, &cb, &fixed, |d2| GAMMA * (-beta * d2).exp(), &cancel).ok_or(Cancelled)?;
         let mut changed = 0usize;
@@ -76,6 +90,8 @@ pub fn grabcut_with(img: &RgbImage, trimap: &mut [u8], iters: usize, ctl: &Inter
                 *t = nt;
             }
         }
+        lap!(format!("gc{_it} cut+update"));
+        eprintln!("      gc{_it} changed {changed}");
         models = Some((fg, bg));
         if changed * 2000 < trimap.len() {
             break;
