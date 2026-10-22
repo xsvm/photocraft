@@ -55,10 +55,21 @@ pub fn select_subject_with(sampler: &dyn Sampler, canvas: Rect, ctl: &Interrupt)
     if canvas.width() < 4 || canvas.height() < 4 {
         return Ok(None);
     }
+    let mut __t = std::time::Instant::now();
+    #[allow(unused_macros)]
+    macro_rules! lap {
+        ($n:expr) => {
+            eprintln!("    {:<18} {:>8.1} ms", $n, __t.elapsed().as_secs_f64() * 1e3);
+            __t = std::time::Instant::now();
+        };
+    }
     let step = super::scale_for(canvas, WORK_PX);
     let img = sampler.rgb_scaled(canvas, step);
     let (w, h) = (img.w, img.h);
+    eprintln!("  work {w}x{h} step {step}");
+    lap!("rgb_scaled");
     let sal = saliency(&img);
+    lap!("saliency");
     ctl.check()?;
     let t = otsu(&sal).clamp(0.15, 0.85);
     let mut trimap = vec![PR_BG; w * h];
@@ -81,15 +92,21 @@ pub fn select_subject_with(sampler: &dyn Sampler, canvas: Rect, ctl: &Interrupt)
         return Ok(None);
     }
     let Some((fg, bg)) = grabcut::grabcut_with(&img, &mut trimap, 6, ctl)? else { return Ok(None) };
+    lap!("grabcut1");
     let low: Vec<bool> = trimap.iter().map(|v| *v == PR_FG || *v == grabcut::FG).collect();
     let low = super::clean_mask(&low, w, h, 0.2, 0.0);
     if !low.iter().any(|v| *v) {
         return Ok(None);
     }
+    lap!("clean");
     let (low, fg, bg) = backdrop_pass(&img, &low, ctl)?.unwrap_or((low, fg, bg));
+    lap!("backdrop_pass");
     ctl.check()?;
     let low = super::fill_holes_by_model(&low, &img, &fg, &bg, 0.002, 0.05);
-    super::finish_region_with(sampler, canvas, step, &low, w, h, Some((&fg, &bg)), ctl)
+    lap!("fill_holes");
+    let r = super::finish_region_with(sampler, canvas, step, &low, w, h, Some((&fg, &bg)), ctl);
+    lap!("finish_region");
+    r
 }
 
 /// Step 5: GrabCut again with a background model that only knows the backdrop. A colour model
@@ -143,10 +160,21 @@ fn backdrop_pass(img: &super::RgbImage, blob: &[bool], ctl: &Interrupt) -> Resul
 
 /// Per-pixel saliency in `0..=1` (see the module docs).
 pub fn saliency(img: &super::RgbImage) -> Vec<f32> {
+    let mut __t = std::time::Instant::now();
+    #[allow(unused_macros)]
+    macro_rules! lap {
+        ($n:expr) => {
+            eprintln!("    {:<18} {:>8.1} ms", $n, __t.elapsed().as_secs_f64() * 1e3);
+            __t = std::time::Instant::now();
+        };
+    }
     let (w, h) = (img.w, img.h);
     let lab: Vec<[f32; 3]> = img.px.iter().map(|p| rgb_to_lab(*p)).collect();
     let target = ((w * h) / 150).clamp(16, 400);
+    lap!("  lab");
     let sp = slic_lab(&lab, w, h, target, 10.0, 8);
+    lap!("  slic");
+    eprintln!("      superpixels {}", sp.count);
     let n = sp.count;
     // Region statistics.
     let mut mean = vec![[0.0f64; 3]; n];
@@ -190,6 +218,7 @@ pub fn saliency(img: &super::RgbImage) -> Vec<f32> {
             }
         }
     }
+    lap!("  stats+adj");
     // Boundary connectivity from all-pairs geodesic distances (Dijkstra per region).
     let mut wbg = vec![0.0f32; n];
     let mut geo = vec![f32::INFINITY; n];
@@ -206,6 +235,7 @@ pub fn saliency(img: &super::RgbImage) -> Vec<f32> {
         let bnd = len / area.max(1e-6).sqrt();
         *wb = 1.0 - (-bnd * bnd / 2.0).exp();
     }
+    lap!("  dijkstra");
     // Background-weighted contrast.
     let mut wctr = vec![0.0f32; n];
     for p in 0..n {
@@ -219,6 +249,7 @@ pub fn saliency(img: &super::RgbImage) -> Vec<f32> {
     }
     let mx = wctr.iter().copied().fold(0.0f32, f32::max).max(1e-6);
     let wfg: Vec<f32> = wctr.iter().map(|v| v / mx).collect();
+    lap!("  contrast");
     // Saliency optimisation: min Σ wbg s² + Σ wfg (s−1)² + Σ_{i~j} w_ij (s_i − s_j)² (Gauss–Seidel).
     let wij: Vec<Vec<f32>> = (0..n).map(|p| adj[p].iter().map(|&q| (-dapp(p, q).powi(2) / (2.0 * SIGMA_CLR * SIGMA_CLR)).exp() + 0.1).collect()).collect();
     let mut s = wfg.clone();
@@ -232,6 +263,7 @@ pub fn saliency(img: &super::RgbImage) -> Vec<f32> {
             s[p] = num / den.max(1e-6);
         }
     }
+    lap!("  gauss-seidel");
     // Frequency-tuned saliency.
     let mut mean_all = [0.0f64; 3];
     for c in &lab {
@@ -253,6 +285,7 @@ pub fn saliency(img: &super::RgbImage) -> Vec<f32> {
     for v in &mut out {
         *v = (*v - lo) / r;
     }
+    lap!("  freq-tuned");
     out
 }
 
