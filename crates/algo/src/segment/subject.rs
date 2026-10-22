@@ -117,6 +117,14 @@ pub fn select_subject_with(sampler: &dyn Sampler, canvas: Rect, ctl: &Interrupt)
 /// foreground. `Ok(None)` when the frame cannot be modelled or the cut keeps nothing that
 /// touches the blob; `Err(Cancelled)` once `ctl` is cancelled, as in the first pass.
 fn backdrop_pass(img: &super::RgbImage, blob: &[bool], ctl: &Interrupt) -> Result<Option<(Vec<bool>, Gmm, Gmm)>, Cancelled> {
+    let mut __t = std::time::Instant::now();
+    #[allow(unused_macros)]
+    macro_rules! lap {
+        ($n:expr) => {
+            eprintln!("      {:<22} {:>8.1} ms", $n, __t.elapsed().as_secs_f64() * 1e3);
+            __t = std::time::Instant::now();
+        };
+    }
     let (w, h) = (img.w, img.h);
     let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0usize, 0usize);
     for (i, on) in blob.iter().enumerate() {
@@ -135,11 +143,15 @@ fn backdrop_pass(img: &super::RgbImage, blob: &[bool], ctl: &Interrupt) -> Resul
     let in_frame = |x: usize, y: usize| x < frame || y < frame || x + frame >= w || y + frame >= h;
     let near_blob = |x: usize, y: usize| (bx0..=bx1).contains(&x) && (by0..=by1).contains(&y);
     let samples: Vec<[f32; 3]> = (0..w * h).filter(|i| in_frame(i % w, i / w) && !near_blob(i % w, i / w)).map(|i| img.px[i]).collect();
+    lap!("bd samples");
+    eprintln!("      bd samples {}", samples.len());
     let Some(backdrop) = Gmm::fit(&super::subsample(&samples, 40_000), grabcut::K, super::gmm::DEFAULT_REG) else { return Ok(None) };
+    lap!("bd fit");
     // What the frame itself costs under its own model bounds "explained well".
     let mut frame_costs: Vec<f32> = samples.iter().map(|p| backdrop.neg_log(*p)).collect();
     frame_costs.sort_by(|a, b| a.total_cmp(b));
     let Some(limit) = frame_costs.get(frame_costs.len() * 99 / 100).map(|c| c + 4.0) else { return Ok(None) };
+    lap!("bd frame costs+sort");
     let mut trimap: Vec<u8> = (0..w * h)
         .map(|i| {
             let (x, y) = (i % w, i / w);
@@ -152,7 +164,9 @@ fn backdrop_pass(img: &super::RgbImage, blob: &[bool], ctl: &Interrupt) -> Resul
             }
         })
         .collect();
+    lap!("bd trimap");
     let Some((fg, bg)) = grabcut::grabcut_with(img, &mut trimap, 4, ctl)? else { return Ok(None) };
+    lap!("bd grabcut");
     let cut: Vec<bool> = trimap.iter().map(|v| *v == PR_FG || *v == grabcut::FG).collect();
     let low = super::keep_seeded(&cut, blob, w, h);
     Ok(low.iter().any(|v| *v).then_some((low, fg, bg)))

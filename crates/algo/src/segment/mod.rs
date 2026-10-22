@@ -275,6 +275,8 @@ fn grid_cut_impl<const OPTIMIZED: bool>(
     if img.w > i32::MAX as usize || img.h > i32::MAX as usize || [img.px.len(), cost_fg.len(), cost_bg.len(), fixed.len()].iter().any(|&len| len < n) {
         return Some(Vec::new());
     }
+    let __big = n > 50_000;
+    let __t0 = std::time::Instant::now();
     let mut free = Vec::new();
     let mut idx = vec![u32::MAX; n];
     let mut count = 0u32;
@@ -336,8 +338,17 @@ fn grid_cut_impl<const OPTIMIZED: bool>(
     if cancel() {
         return None;
     }
+    let __t1 = std::time::Instant::now();
     if OPTIMIZED {
         g.maxflow_with(cancel)?;
+        if __big {
+            eprintln!(
+                "        graph build {:>6.1} ms, maxflow {:>6.1} ms ({} nodes)",
+                (__t1 - __t0).as_secs_f64() * 1e3,
+                __t1.elapsed().as_secs_f64() * 1e3,
+                count
+            );
+        }
     } else {
         g.maxflow_bk();
     }

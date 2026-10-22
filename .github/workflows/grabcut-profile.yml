@@ -1,0 +1,29 @@
+name: grabcut-profile
+# One-off: inside a first Select Subject on 24 MP, where do the two GrabCuts (and the backdrop
+# pass around the second) spend their time? Analysis branch only (main + #8554 + timings).
+on:
+  push:
+    branches: [analysis/grabcut-profile]
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the algo tests (release)
+        run: cargo test -q --release -p photocraft-algo --lib --locked --no-run
+      - name: Stage timings
+        run: |
+          set -u
+          bin=$(ls -t target/release/deps/photocraft_algo-* | grep -v '\.d$' | head -1)
+          nproc
+          {
+            echo "== 24 MP, 3 first runs"
+            SUBJECT_REPS=3 $bin --ignored --exact --nocapture segment::tests::subject_profile_24mp 2>&1 | grep -vE '^(running|test |$)'
+            echo "== 6 MP"
+            $bin --ignored --exact --nocapture segment::tests::select_subject_timing 2>&1 | grep -vE '^(running|test |$)'
+          } | tee out.txt
+          { echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
