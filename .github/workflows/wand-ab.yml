@@ -1,0 +1,48 @@
+name: wand-ab
+# One-off for storytold/photocraft#8582: clippy and the algo unit tests (debug) at the PR head,
+# then the 8-bit wand on 24 MP, main vs PR (both with the same analysis timing test).
+on:
+  workflow_dispatch:
+  push:
+    branches: [analysis/wand-ab]
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Clippy and unit tests at the PR head
+        run: |
+          git fetch -q origin perf/wand-antialias-reuse analysis/wand-ab-main
+          git worktree add -q ../pr origin/perf/wand-antialias-reuse
+          cd ../pr && git log --oneline -1
+          CARGO_TARGET_DIR=$PWD/../t-dbg cargo clippy -q -p photocraft-algo --all-targets --locked -- -D warnings
+          CARGO_TARGET_DIR=$PWD/../t-dbg cargo test -q -p photocraft-algo --lib --locked 2>&1 | tail -4
+      - name: Build main and PR (release)
+        run: |
+          git worktree add -q ../m origin/analysis/wand-ab-main
+          git worktree add -q ../p "$GITHUB_SHA"
+          for d in m p; do
+            (cd ../$d && git log --oneline -1 && CARGO_TARGET_DIR=$PWD/../t-$d cargo test -q --release -p photocraft-algo --lib --locked --no-run)
+          done
+      - name: A/B
+        run: |
+          set -u
+          nproc
+          bin() { ls -t ../t-$1/release/deps/photocraft_algo-* | grep -v '\.d$' | head -1; }
+          cmp "$(bin m)" "$(bin p)" >/dev/null && { echo "binaries identical"; exit 1; }
+          {
+            for round in 1 2 3; do
+              for d in m p; do
+                echo "== round $round $d"
+                $(bin $d) --ignored --exact --nocapture selection::tests::wand_timing_24mp 2>&1 | grep WAND
+              done
+            done
+          } | tee out.txt
+          { echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
