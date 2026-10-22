@@ -1,0 +1,39 @@
+name: subject-profile
+# One-off: where does a first Select Subject on 24 MP spend its time? Stage timings from the
+# analysis branch's instrumentation, then a perf profile of the same test.
+on:
+  push:
+    branches: [analysis/subject-profile]
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: perf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends linux-tools-common "linux-tools-$(uname -r)"
+          sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0
+      - name: Build the algo tests (release, line tables)
+        run: CARGO_PROFILE_RELEASE_DEBUG=line-tables-only cargo test -q --release -p photocraft-algo --lib --no-run
+      - name: Stage timings and profile
+        run: |
+          set -u
+          bin=$(ls -t target/release/deps/photocraft_algo-* | grep -v '\.d$' | head -1)
+          nproc
+          {
+            echo "== stage timings (3 first runs)"
+            $bin --ignored --exact --nocapture segment::tests::subject_profile_24mp 2>&1 | grep -vE '^(running|test |$)'
+            echo "== 6 MP timing test"
+            $bin --ignored --exact --nocapture segment::tests::select_subject_timing 2>&1 | grep 'select_subject'
+            echo "== perf (self)"
+            SUBJECT_REPS=4 perf record -q -F 2000 -g -o perf.data -- $bin --ignored --exact segment::tests::subject_profile_24mp >/dev/null 2>&1
+            perf report -i perf.data --no-children --sort symbol --percent-limit 1 --stdio 2>/dev/null | grep -E '^ +[0-9]' | head -30
+            echo "== perf (children, photocraft only)"
+            perf report -i perf.data --children --sort symbol --percent-limit 2 --stdio -g none 2>/dev/null | grep -E '^ +[0-9]' | grep -iE 'photocraft|segment|rayon' | head -30
+          } | tee out.txt
+          { echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
