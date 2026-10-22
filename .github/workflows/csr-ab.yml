@@ -1,0 +1,57 @@
+name: csr-ab
+# One-off for storytold/photocraft#8569: clippy and the algo unit tests (debug) at the PR head;
+# old vs new push/relabel bit for bit; then main vs PR timings (both with the analysis stage
+# timings and a mask hash), differing only in push_relabel.rs.
+on:
+  push:
+    branches: [analysis/csr-ab]
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Clippy and unit tests at the PR head
+        run: |
+          git fetch -q origin perf/push-relabel-csr analysis/csr-ab-main
+          git worktree add -q ../pr origin/perf/push-relabel-csr
+          cd ../pr && git log --oneline -1
+          CARGO_TARGET_DIR=$PWD/../t-dbg cargo clippy -q -p photocraft-algo --all-targets --locked -- -D warnings
+          CARGO_TARGET_DIR=$PWD/../t-dbg cargo test -q -p photocraft-algo --lib --locked segment 2>&1 | tail -4
+      - name: Build main and PR (release, instrumented)
+        run: |
+          git worktree add -q ../m origin/analysis/csr-ab-main
+          git worktree add -q ../p "$GITHUB_SHA"
+          git diff --stat origin/analysis/csr-ab-main "$GITHUB_SHA" -- crates
+          for d in m p; do
+            (cd ../$d && git log --oneline -1 && CARGO_TARGET_DIR=$PWD/../t-$d cargo test -q --release -p photocraft-algo --lib --locked --no-run)
+          done
+      - name: Old vs new, bit for bit
+        run: |
+          bin=$(ls -t ../t-p/release/deps/photocraft_algo-* | grep -v '\.d$' | head -1)
+          $bin --ignored --exact --nocapture segment::maxflow::push_relabel_old::tests::per_node_blocks_match_the_linked_list_solver_bit_for_bit 2>&1 | grep -E 'identical|panicked|test result'
+      - name: A/B
+        run: |
+          set -u
+          nproc
+          bin() { ls -t ../t-$1/release/deps/photocraft_algo-* | grep -v '\.d$' | head -1; }
+          cmp "$(bin m)" "$(bin p)" >/dev/null && { echo "binaries identical"; exit 1; }
+          {
+            for round in 1 2 3; do
+              for d in m p; do
+                echo "== round $round $d"
+                SUBJECT_REPS=3 $(bin $d) --ignored --exact --nocapture segment::tests::subject_profile_24mp 2>&1 | grep -E 'maxflow|grabcut1 |bd grabcut|refine_band|select_subject 24'
+              done
+            done
+            for d in m p; do
+              echo "== solver workload $d (old_ms = BK, new_ms = maxflow)"
+              $(bin $d) --ignored --exact --nocapture segment::maxflow::push_relabel::tests::solver_workload_release_comparison 2>&1 | grep -E 'SOLVER' | grep -v 'case=chain'
+            done
+          } | tee out.txt
+          { echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
