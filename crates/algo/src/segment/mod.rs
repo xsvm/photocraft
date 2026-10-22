@@ -628,6 +628,14 @@ pub fn finish_region_with(
     models: Option<(&Gmm, &Gmm)>,
     ctl: &Interrupt,
 ) -> Result<Option<Region>, Cancelled> {
+    let mut __t = std::time::Instant::now();
+    #[allow(unused_macros)]
+    macro_rules! lap {
+        ($n:expr) => {
+            eprintln!("    {:<18} {:>8.1} ms", $n, __t.elapsed().as_secs_f64() * 1e3);
+            __t = std::time::Instant::now();
+        };
+    }
     let (w, h) = (window.width() as usize, window.height() as usize);
     let mut mask = vec![0u8; w * h];
     if step <= 1 {
@@ -651,6 +659,7 @@ pub fn finish_region_with(
                 }
             }
         }
+        lap!("  band");
         let fill = |y: usize, row: &mut [u8]| {
             let ly = (y / step).min(lh - 1);
             for (x, o) in row.iter_mut().enumerate() {
@@ -664,12 +673,17 @@ pub fn finish_region_with(
         }
         #[cfg(target_arch = "wasm32")]
         mask.chunks_mut(w).enumerate().for_each(|(y, r)| fill(y, r));
+        lap!("  fill");
         if let Some((fg, bg)) = models {
             refine_band(sampler, window, step, low, &band, lw, lh, fg, bg, &mut mask, ctl)?;
         }
     }
+    lap!("  refine_band");
     antialias_u8(&mut mask, w, h);
-    Ok(trim_region(Region { bbox: window, mask }))
+    lap!("  antialias");
+    let r = trim_region(Region { bbox: window, mask });
+    lap!("  trim");
+    Ok(r)
 }
 
 /// Full-resolution graph cut restricted to the band blocks (see [`finish_region`]).

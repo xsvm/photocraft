@@ -1014,3 +1014,27 @@ fn hole_fill_without_specks_fills_object_coloured_holes_only() {
     assert!(out[25 * w + 25], "a speck of the object's colour fills");
     assert!(!out[10 * w + 10], "a speck of the background's colour stays open");
 }
+
+/// Profiling only (analysis branch): the perf_scenarios photo (gradient, blob, noise, disc) at
+/// 24 MP, first run each time.
+#[test]
+#[ignore = "profiling only"]
+fn subject_profile_24mp() {
+    let (w, h) = (6000usize, 4000usize);
+    let (cx, cy, r) = (w as f32 * 0.55, h as f32 * 0.5, w.min(h) as f32 / 3.0);
+    let img = RgbImage::from_fn(w, h, |x, y| {
+        let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
+        let n = ((x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663)) % 997) as f32 / 997.0 - 0.5;
+        let blob = (-(((fx - 0.4) * 3.0).powi(2) + ((fy - 0.55) * 4.0).powi(2))).exp();
+        let inside = ((x as f32 - cx).powi(2) + (y as f32 - cy).powi(2)).sqrt() < r;
+        let (r0, g0, b0) = if inside { (0.85, 0.3 + 0.2 * (fx * 40.0).sin(), 0.15) } else { (0.35, 0.45, 0.55) };
+        [r0 + 0.1 * blob + n * 0.08, g0 + 0.1 * blob + n * 0.08, b0 + 0.2 * fy + n * 0.08].map(|v: f32| (v.clamp(0.0, 1.0) * 255.0).round() / 255.0)
+    });
+    let s = ImageSampler { img: &img, origin: (0, 0) };
+    let reps: usize = std::env::var("SUBJECT_REPS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+    for _ in 0..reps {
+        let t0 = std::time::Instant::now();
+        let reg = subject::select_subject(&s, Rect::new(0, 0, w as i32, h as i32)).unwrap();
+        eprintln!("select_subject 24 MP: {:?} bbox {:?}", t0.elapsed(), reg.bbox);
+    }
+}
