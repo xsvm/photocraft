@@ -1039,6 +1039,7 @@ fn subject_profile_24mp() {
     for _ in 0..reps {
         let t0 = std::time::Instant::now();
         let reg = subject::select_subject(&s, Rect::new(0, 0, w as i32, h as i32)).unwrap();
-        eprintln!("select_subject 24 MP: {:?} bbox {:?}", t0.elapsed(), reg.bbox);
+        let hash = reg.mask.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
+        eprintln!("select_subject 24 MP: {:?} bbox {:?} mask {hash:016x}", t0.elapsed(), reg.bbox);
     }
 }
