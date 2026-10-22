@@ -201,10 +201,11 @@ impl Graph {
     }
 
     fn global_relabel(&mut self, arcs: &Arcs, source_height: u32, back: &[f32]) {
+        let n = self.node_count();
         self.dist.fill(u32::MAX);
-        self.parent.copy_from_slice(&arcs.start[..self.node_count()]);
+        self.parent.copy_from_slice(&arcs.start[..n]);
         let mut queue = VecDeque::new();
-        for i in 0..self.node_count() {
+        for i in 0..n {
             if self.tr_cap[i] < -EPS {
                 self.dist[i] = 1;
                 queue.push_back(i)
