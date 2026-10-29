@@ -1,0 +1,24 @@
+name: wand-verify
+# One-off check for #8582 rebased onto main (18b938f1f): clippy -D warnings and the
+# photocraft-algo unit tests in debug. This commit only adds this file.
+on:
+  push:
+    branches: [analysis/wand-verify]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: only this workflow differs from the PR head
+        run: test "$(git diff --name-only HEAD~1 HEAD)" = .github/workflows/wand-verify.yml && git rev-parse HEAD~1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: clippy (photocraft-algo, all targets)
+        run: cargo clippy -p photocraft-algo --all-targets --locked -- -D warnings
+      - name: algo unit tests (debug)
+        run: cargo test -p photocraft-algo --lib --locked
