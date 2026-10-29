@@ -579,6 +579,42 @@ fn blobs(w: i32, h: i32) -> Vec<[u8; 4]> {
         .collect()
 }
 
+/// Analysis only: the 8-bit wand with and without anti-aliasing on 24 MP, a disc on a striped
+/// noisy backdrop; a contiguous pick of the disc (7 MP box) and a global pick of the backdrop
+/// (the whole image as its box).
+#[test]
+#[ignore = "analysis timing"]
+fn wand_timing_24mp() {
+    let (w, h) = (6000i32, 4000i32);
+    let area = Rect::new(0, 0, w, h);
+    let img: Vec<[u8; 4]> = (0..w * h)
+        .map(|i| {
+            let (x, y) = (i % w, i / w);
+            let n = ((x as u32).wrapping_mul(73_856_093) ^ (y as u32).wrapping_mul(19_349_663)) % 7;
+            if ((x - 3300) as f32).hypot((y - 2000) as f32) < 1333.0 {
+                [200, 80 + n as u8, 40, 255]
+            } else {
+                [90 + (x / 200) as u8, 115, 140 + n as u8, 255]
+            }
+        })
+        .collect();
+    for (name, seed, contiguous) in [("disc, contiguous", (3300, 2000), true), ("backdrop, global", (10, 10), false)] {
+        for aa in [false, true] {
+            let mut ms = Vec::new();
+            let mut hash = 0u64;
+            for _ in 0..5 {
+                let t = std::time::Instant::now();
+                let r = std::hint::black_box(wand_region(&img, area, seed, 32.0, contiguous, aa)).unwrap();
+                ms.push(t.elapsed().as_secs_f64() * 1e3);
+                hash = r.mask.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
+                hash ^= (r.bbox.x0 as u64) << 1 ^ (r.bbox.y1 as u64) << 33;
+            }
+            ms.sort_by(f64::total_cmp);
+            eprintln!("WAND {name} aa={aa}: min {:.1} median {:.1} ms, mask {hash:016x}", ms[0], ms[2]);
+        }
+    }
+}
+
 #[test]
 fn magic_wand_rejects_incomplete_and_overflowing_pixel_inputs() {
     let area = Rect::new(0, 0, 4, 4);

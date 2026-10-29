@@ -1,0 +1,40 @@
+name: wand-ab2
+# One-off for storytold/photocraft#8582 after the rebase: the 8-bit wand on 24 MP, latest main
+# (5f9b43918) vs the PR head (18b938f1), both with the same analysis timing test; 5 rounds.
+on:
+  workflow_dispatch:
+  push:
+    branches: [analysis/wand-ab2]
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build main and PR (release)
+        run: |
+          git fetch -q origin analysis/wand-ab2-main
+          git worktree add -q ../m origin/analysis/wand-ab2-main
+          git worktree add -q ../p "$GITHUB_SHA"
+          for d in m p; do
+            (cd ../$d && git log --oneline -2 && CARGO_TARGET_DIR=$PWD/../t-$d cargo test -q --release -p photocraft-algo --lib --locked --no-run)
+          done
+      - name: A/B
+        run: |
+          set -u
+          nproc
+          bin() { ls -t ../t-$1/release/deps/photocraft_algo-* | grep -v '\.d$' | head -1; }
+          cmp "$(bin m)" "$(bin p)" >/dev/null && { echo "binaries identical"; exit 1; }
+          {
+            for round in 1 2 3 4 5; do
+              for d in m p; do
+                echo "== round $round $d"
+                $(bin $d) --ignored --exact --nocapture selection::tests::wand_timing_24mp 2>&1 | grep WAND
+              done
+            done
+          } | tee out.txt
+          { echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
